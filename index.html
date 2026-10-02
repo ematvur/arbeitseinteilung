@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Arbeitseinteilung</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗂️</text></svg>">
+
+<!-- ================= EINRICHTUNG: nur diesen Block anpassen ================= -->
+<script>
+window.APP_CONFIG = {
+  tenantId: "DEINE-TENANT-ID",          // Entra ID > Übersicht > Verzeichnis-ID (Mandant)
+  clientId: "DEINE-CLIENT-ID",          // App-Registrierung > Anwendungs-ID (Client)
+  siteHost: "corpdir-my.sharepoint.com", // Host der SharePoint-Seite
+  sitePath: "/personal/ematvur_emea_corpdir_net", // Pfad der SharePoint-Seite
+  listName: "Arbeitseinteilung",        // Name der SharePoint-Liste
+  pollSeconds: 20                       // Abgleich mit SharePoint alle x Sekunden
+};
+</script>
+<!-- ========================================================================= -->
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Semi+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.39.0/lib/msal-browser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+:root{
+  --bg:#E8EBEE; --panel:#FFFFFF; --ink:#18212B; --muted:#5A6572; --line:#D4DAE0; --line-strong:#A9B4BF;
+  --steel:#1F4466; --amber:#E2A10F; --amber-soft:#FCF0CC; --amber-ink:#5B4004;
+  --violet:#5E3A96; --violet-soft:#EEE7F8; --focus:#2A7FD4; --danger:#B3261E; --chip:#F3F5F7;
+  --archive:#7A8591; --future:#2F6E9E;
+  --head:"Barlow Semi Condensed","Arial Narrow",Arial,sans-serif;
+  --body:"Barlow","Segoe UI",Arial,sans-serif;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#10151B; --panel:#19212A; --ink:#E5E9ED; --muted:#98A4B0; --line:#2A3540; --line-strong:#43505D;
+    --steel:#2C5F8C; --amber:#E8AC24; --amber-soft:#3A2E10; --amber-ink:#F4D68C;
+    --violet:#8462BF; --violet-soft:#2A2238; --focus:#5AA6F0; --danger:#E5675E; --chip:#212A34;
+    --archive:#6F7A86; --future:#4C8EC2; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#10151B; --panel:#19212A; --ink:#E5E9ED; --muted:#98A4B0; --line:#2A3540; --line-strong:#43505D;
+  --steel:#2C5F8C; --amber:#E8AC24; --amber-soft:#3A2E10; --amber-ink:#F4D68C;
+  --violet:#8462BF; --violet-soft:#2A2238; --focus:#5AA6F0; --danger:#E5675E; --chip:#212A34;
+  --archive:#6F7A86; --future:#4C8EC2; color-scheme:dark;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 var(--body);-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.wrap{max-width:1360px;margin:0 auto;padding:16px 20px 48px}
+
+/* top bar */
+.top{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:14px}
+.top h1{font:700 22px/1 var(--head);margin:0;letter-spacing:.2px}
+.tabs{display:flex;gap:2px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:3px;margin-left:auto}
+.tabs button{border:0;background:none;padding:7px 14px;border-radius:6px;cursor:pointer;font-weight:500;color:var(--muted)}
+.tabs button[aria-selected="true"]{background:var(--steel);color:#fff}
+.sync{font-size:13px;color:var(--muted)}
+
+/* week bar */
+.weekbar{display:grid;grid-template-columns:auto 1fr auto;gap:16px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 16px;margin-bottom:14px;border-left:6px solid var(--st,var(--amber))}
+.kwnav{display:flex;align-items:center;gap:6px}
+.iconbtn{border:1px solid var(--line);background:var(--panel);width:38px;height:38px;border-radius:8px;cursor:pointer;font-size:18px;line-height:1}
+.iconbtn:hover{border-color:var(--line-strong)}
+.kw{display:flex;align-items:baseline;gap:6px;padding:0 6px;min-width:120px;justify-content:center}
+.kw small{font:600 18px/1 var(--head);color:var(--muted)}
+.kw strong{font:700 54px/0.9 var(--head);letter-spacing:-1px;font-variant-numeric:tabular-nums}
+.kwmeta{display:flex;flex-direction:column;gap:3px}
+.kwmeta .dates{font-weight:600;font-size:16px}
+.status{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
+.status i{width:9px;height:9px;border-radius:50%;background:var(--st,var(--amber))}
+.actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.btn{border:1px solid var(--line-strong);background:var(--panel);padding:8px 14px;border-radius:8px;cursor:pointer;font-weight:500;white-space:nowrap}
+.btn:hover{background:var(--chip)}
+.btn.primary{background:var(--steel);border-color:var(--steel);color:#fff}
+.btn.primary:hover{filter:brightness(1.1)}
+.btn.small{padding:5px 10px;font-size:14px}
+.btn.danger{color:var(--danger);border-color:var(--line)}
+.menu{position:relative}
+.menu-list{position:absolute;right:0;top:calc(100% + 4px);background:var(--panel);border:1px solid var(--line-strong);border-radius:8px;padding:4px;min-width:170px;z-index:20;box-shadow:0 8px 24px rgba(0,0,0,.18)}
+.menu-list button{display:block;width:100%;text-align:left;border:0;background:none;padding:8px 10px;border-radius:6px;cursor:pointer}
+.menu-list button:hover{background:var(--chip)}
+.banner{display:flex;gap:12px;align-items:center;justify-content:space-between;background:var(--chip);border:1px dashed var(--line-strong);border-radius:8px;padding:8px 12px;margin:-4px 0 14px;font-size:14px;color:var(--muted)}
+
+/* layout */
+.plan{display:grid;grid-template-columns:260px 1fr;gap:16px;align-items:start}
+.pool{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;position:sticky;top:calc(env(safe-area-inset-top,0px) + 12px);max-height:calc(100vh - 40px);display:flex;flex-direction:column}
+.pool h2{font:600 17px/1.2 var(--head);margin:0 0 8px;display:flex;justify-content:space-between}
+.pool h2 span{color:var(--muted);font-weight:500}
+.pool input{width:100%;border:1px solid var(--line);background:var(--bg);border-radius:6px;padding:7px 9px;margin-bottom:8px}
+.poollist{list-style:none;margin:0;padding:0;overflow:auto;flex:1;min-height:60px;border-radius:6px}
+.poollist.dragover{background:var(--chip);outline:2px dashed var(--line-strong)}
+.poollist li{display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:6px;cursor:grab;border:1px solid transparent}
+.poollist li:hover{background:var(--chip);border-color:var(--line)}
+.poollist .empty{cursor:default;color:var(--muted);font-size:14px}
+.poollist .empty:hover{background:none;border-color:transparent}
+.quickadd{display:flex;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+.quickadd input{margin:0}
+
+/* board */
+.exportArea{background:var(--bg)}
+.export-only{display:none}
+.board{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px;align-items:start}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:4px;overflow:hidden;transition:box-shadow .12s}
+.card.dragover{box-shadow:0 0 0 3px var(--pc,var(--steel))}
+.card-h{background:var(--pc,var(--steel));color:#fff;display:flex;align-items:center;justify-content:space-between;padding:6px 10px}
+.card-h h3{margin:0;font:700 17px/1.2 var(--head);letter-spacing:.2px}
+.card-h h3 small{font-weight:500;opacity:.8}
+.card-h .cnt{font:600 14px/1 var(--head);background:rgba(255,255,255,.18);padding:3px 8px;border-radius:10px;font-variant-numeric:tabular-nums}
+.rows{list-style:none;margin:0;padding:0}
+.row{display:flex;align-items:center;gap:6px;min-height:30px;padding:4px 10px;border-bottom:1px solid var(--line)}
+.row.emp{cursor:grab}
+.row.emp:hover{background:var(--chip)}
+.row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fd{font-size:12px;font-weight:600;background:var(--amber-soft);color:var(--amber-ink);border:1px solid var(--amber);padding:0 6px;border-radius:9px;white-space:nowrap}
+.x{border:0;background:none;width:24px;height:24px;border-radius:5px;cursor:pointer;color:var(--muted);font-size:17px;line-height:1;flex:none}
+.x:hover{background:var(--line);color:var(--danger)}
+.add{width:100%;border:0;border-top:1px solid var(--line);background:var(--panel);padding:8px 10px;color:var(--muted);cursor:pointer;-webkit-appearance:none;appearance:none}
+.add:hover{background:var(--chip);color:var(--ink)}
+.addcard{border:1.5px dashed var(--line-strong);background:transparent;border-radius:4px;padding:12px;display:flex;flex-direction:column;gap:8px;min-height:120px;justify-content:center}
+.addcard input{border:1px solid var(--line);background:var(--panel);border-radius:6px;padding:7px 9px;width:100%}
+.addcard label{font-weight:600;font-size:14px;color:var(--muted)}
+
+.lower{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;margin-top:18px}
+.tbl{background:var(--panel);border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.tbl-h{display:flex;align-items:center;gap:8px;padding:7px 10px;font:700 17px/1.2 var(--head);color:#fff}
+.tbl-h.violet{background:var(--violet)}
+.tbl-h.amber{background:var(--amber);color:#2B1F02}
+.tbl-h .cnt{margin-left:auto;font-size:14px;font-weight:600;opacity:.85}
+.tbl table{width:100%;border-collapse:collapse}
+.tbl th,.tbl td{text-align:left;padding:5px 10px;border-bottom:1px solid var(--line);font-size:14.5px}
+.tbl th{font-weight:600;color:var(--muted);font-size:13.5px}
+.tbl td.c{width:30px;padding:0 4px}
+.tbl .addrow{display:flex;gap:6px;padding:8px;flex-wrap:wrap}
+.tbl .addrow select,.tbl .addrow input{border:1px solid var(--line);background:var(--bg);border-radius:6px;padding:6px 8px;flex:1;min-width:110px}
+.tbl .none td{color:var(--muted);font-style:italic}
+
+/* locked */
+body.locked .edit{display:none!important}
+body.locked .row.emp,body.locked .poollist li{cursor:default}
+
+/* weeks overview */
+.weeks{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:18px}
+.weeks section{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.weeks h2{margin:0;padding:12px 14px;font:700 19px/1.2 var(--head);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:baseline}
+.weeks h2 span{font:500 14px var(--body);color:var(--muted)}
+.wk{display:grid;grid-template-columns:62px 1fr auto;gap:12px;align-items:center;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);background:none;padding:10px 14px;cursor:pointer}
+.wk:hover{background:var(--chip)}
+.wk .n{font:700 28px/1 var(--head);font-variant-numeric:tabular-nums;border-left:4px solid var(--st);padding-left:8px}
+.wk .d{font-weight:600}
+.wk .s{font-size:13px;color:var(--muted)}
+.wk .tag{font-size:12.5px;padding:2px 8px;border-radius:10px;border:1px solid var(--line-strong);color:var(--muted);white-space:nowrap}
+.wk.now .tag{background:var(--amber);border-color:var(--amber);color:#2B1F02;font-weight:600}
+.wkempty{padding:16px 14px;color:var(--muted)}
+
+/* master data */
+.master{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:18px;align-items:start}
+.master section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+.master h2{margin:0 0 4px;font:700 19px/1.2 var(--head)}
+.master p.hint{margin:0 0 12px;color:var(--muted);font-size:14px}
+.mform{display:flex;gap:8px;margin-bottom:12px}
+.mform input{flex:1;border:1px solid var(--line);background:var(--bg);border-radius:6px;padding:8px 10px}
+.mlist{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
+.mlist li{display:flex;align-items:center;gap:6px;padding:6px 0;border-bottom:1px solid var(--line)}
+.mlist input.nm{flex:1;border:1px solid transparent;background:transparent;border-radius:6px;padding:5px 8px;min-width:0}
+.mlist input.nm:hover{border-color:var(--line)}
+.mlist input.nm:focus{border-color:var(--focus);background:var(--bg)}
+.swatches{display:flex;gap:3px}
+.sw{width:20px;height:20px;border-radius:4px;border:2px solid transparent;cursor:pointer;padding:0}
+.sw[aria-pressed="true"]{border-color:var(--ink)}
+.mlist .tiny{border:1px solid var(--line);background:var(--panel);width:28px;height:28px;border-radius:6px;cursor:pointer}
+.mlist .tiny:disabled{opacity:.35;cursor:default}
+
+/* dialog + toast */
+dialog{border:1px solid var(--line-strong);border-radius:10px;background:var(--panel);color:var(--ink);padding:18px;max-width:420px;width:calc(100% - 32px)}
+dialog::backdrop{background:rgba(10,15,20,.45)}
+dialog p{margin:0 0 16px}
+dialog menu{display:flex;justify-content:flex-end;gap:8px;margin:0;padding:0}
+.toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 20px);transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:8px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s;z-index:50;max-width:calc(100% - 32px)}
+.toast.show{opacity:1}
+.loading{padding:60px 0;text-align:center;color:var(--muted)}
+
+/* export mode (in cloned document only) */
+body.exporting .no-export{display:none!important}
+body.exporting .export-only{display:block}
+body.exporting .exportArea{padding:24px;width:1240px;background:#fff}
+.export-head{margin-bottom:16px;border-bottom:2px solid var(--ink);padding-bottom:8px}
+.export-head h2{font:700 26px/1.1 var(--head);margin:0}
+.export-head div{color:var(--muted)}
+
+@media (max-width:820px){
+  .plan{grid-template-columns:1fr}
+  .pool{position:static;max-height:none}
+  .poollist{max-height:240px}
+  .weekbar{grid-template-columns:1fr;gap:10px}
+  .actions{justify-content:flex-start}
+  .tabs{margin-left:0;width:100%}
+  .tabs button{flex:1}
+  .kw strong{font-size:44px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+.gate{max-width:560px;margin:60px auto;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:24px}
+.gate h2{font:700 24px/1.2 var(--head);margin:0 0 8px}
+.gate p{color:var(--muted);margin:0 0 16px}
+.gate code{background:var(--chip);padding:1px 5px;border-radius:4px}
+#who{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--muted)}
+.bulk{margin:-4px 0 12px}
+.bulk summary{cursor:pointer;color:var(--muted);font-size:14px;margin-bottom:8px}
+.bulk textarea{width:100%;border:1px solid var(--line);background:var(--bg);border-radius:6px;padding:8px 10px;font:inherit;color:inherit;margin-bottom:8px;resize:vertical}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>Arbeitseinteilung</h1>
+    <span class="sync" id="sync"></span>
+    <div class="tabs" role="tablist">
+      <button role="tab" data-tab="plan" aria-selected="true">Planung</button>
+      <button role="tab" data-tab="weeks" aria-selected="false">KW-Übersicht</button>
+      <button role="tab" data-tab="master" aria-selected="false">Mitarbeiter &amp; Projekte</button>
+    </div>
+    <span id="who"></span>
+  </div>
+  <div id="app"><div class="loading">Verbindung zu SharePoint wird hergestellt …</div></div>
+</div>
+
+<dialog id="dlg">
+  <form method="dialog">
+    <p id="dlgMsg"></p>
+    <menu>
+      <button class="btn" value="cancel">Abbrechen</button>
+      <button class="btn primary" value="ok" id="dlgOk">OK</button>
+    </menu>
+  </form>
+</dialog>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function(){
+"use strict";
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid=p=>p+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+const clone=o=>JSON.parse(JSON.stringify(o));
+const pad=n=>String(n).padStart(2,'0');
+const COLORS=['#1F4466','#12606B','#3A4450','#4B6A2E','#9A4A1C','#6B3570'];
+const C=window.APP_CONFIG; const SCOPES=['https://graph.microsoft.com/Sites.ReadWrite.All'];
+const GRAPH='https://graph.microsoft.com/v1.0';
+
+/* ---------- KW helpers ---------- */
+function isoWeek(d){
+  const t=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));
+  const day=t.getUTCDay()||7; t.setUTCDate(t.getUTCDate()+4-day);
+  const y=t.getUTCFullYear(); const ys=new Date(Date.UTC(y,0,1));
+  return {year:y,week:Math.ceil(((t-ys)/86400000+1)/7)};
+}
+function mondayOf(y,w){
+  const j4=new Date(Date.UTC(y,0,4)); const day=j4.getUTCDay()||7;
+  const m=new Date(j4); m.setUTCDate(j4.getUTCDate()-day+1+(w-1)*7); return m;
+}
+const wkey=o=>o.year+'-W'+pad(o.week);
+const parseKey=k=>({year:+k.slice(0,4),week:+k.slice(6)});
+function shiftKey(k,n){
+  const p=parseKey(k); const m=mondayOf(p.year,p.week); m.setUTCDate(m.getUTCDate()+7*n);
+  return wkey(isoWeek(new Date(m.getUTCFullYear(),m.getUTCMonth(),m.getUTCDate())));
+}
+function dateRange(k){
+  const p=parseKey(k); const m=mondayOf(p.year,p.week); const f=new Date(m); f.setUTCDate(m.getUTCDate()+4);
+  const d=x=>pad(x.getUTCDate())+'.'+pad(x.getUTCMonth()+1)+'.';
+  return d(m)+'–'+d(f)+f.getUTCFullYear();
+}
+
+/* ---------- state ---------- */
+let state={config:{employees:[],projects:[]},weeks:{}};
+let readOnly=false, loaded=false, msalApp=null, siteId=null, listId=null, account=null;
+const meta={}; // key -> {id, etag}
+const currentKey=wkey(isoWeek(new Date()));
+let viewKey=currentKey, tab='plan', poolFilter='', archiveUnlocked=false;
+
+const emps=()=>state.config.employees||[];
+const projs=()=>state.config.projects||[];
+const empById=id=>emps().find(e=>e.id===id);
+const projById=id=>projs().find(p=>p.id===id);
+const nameOf=id=>(empById(id)||{}).name||'Unbekannt';
+const activeEmps=()=>emps().filter(e=>!e.deleted).sort((a,b)=>a.name.localeCompare(b.name,'de'));
+const activeProjs=()=>projs().filter(p=>!p.deleted);
+function getWeek(k){
+  const w=state.weeks[k]||{};
+  return {assign:w.assign||{},absent:w.absent||[],free:w.free||[]};
+}
+const weekHasData=w=>Object.values(w.assign).some(a=>a&&a.length)||w.absent.length||w.free.length;
+const isArchive=k=>k<currentKey;
+const locked=()=>readOnly||(isArchive(viewKey)&&!archiveUnlocked);
+function assignedProj(w,empId){for(const [pid,ids] of Object.entries(w.assign)){if((ids||[]).includes(empId))return pid}return null}
+function poolEmps(w){
+  const taken=new Set(); Object.values(w.assign).forEach(a=>(a||[]).forEach(i=>taken.add(i)));
+  w.absent.forEach(a=>taken.add(a.emp));
+  return activeEmps().filter(e=>!taken.has(e.id));
+}
+
+/* ---------- Microsoft Graph / SharePoint ---------- */
+async function token(){
+  try{return (await msalApp.acquireTokenSilent({scopes:SCOPES,account})).accessToken}
+  catch(e){
+    if(e instanceof msal.InteractionRequiredAuthError){await msalApp.acquireTokenRedirect({scopes:SCOPES,account});}
+    throw e;
+  }
+}
+async function graph(path,opt){
+  opt=opt||{};
+  const t=await token();
+  const r=await fetch(path.startsWith('http')?path:GRAPH+path,{method:opt.method||'GET',body:opt.body,
+    headers:Object.assign({Authorization:'Bearer '+t,'Content-Type':'application/json',Accept:'application/json'},opt.headers||{})});
+  if(!r.ok){const err=new Error('Graph '+r.status);err.status=r.status;try{err.body=await r.json()}catch(_){}throw err}
+  return r.status===204?null:r.json();
+}
+const itemsPath=()=>'/sites/'+siteId+'/lists/'+listId+'/items';
+function normWeek(d){d=d||{};d.assign=d.assign||{};d.absent=d.absent||[];d.free=d.free||[];return d}
+function normCfg(d){d=d||{};d.employees=d.employees||[];d.projects=d.projects||[];return d}
+function dataOf(key){return key==='config'?normCfg(clone(state.config)):normWeek(clone(state.weeks[key]||{}))}
+function setData(key,d){if(key==='config')state.config=normCfg(d);else state.weeks[key]=normWeek(d)}
+
+async function fetchAll(){
+  let url=itemsPath()+'?$expand=fields($select=Title,Daten)&$top=500';
+  const items=[];
+  while(url){const r=await graph(url);items.push(...r.value);url=r['@odata.nextLink']||null}
+  items.sort((a,b)=>String(a.lastModifiedDateTime).localeCompare(String(b.lastModifiedDateTime)));
+  let cfg={employees:[],projects:[]};const weeks={};
+  for(const it of items){
+    const f=it.fields||{};const key=f.Title;if(!key)continue;
+    let d;try{d=JSON.parse(f.Daten||'{}')}catch(_){continue}
+    meta[key]={id:it.id,etag:f['@odata.etag']};
+    if(key==='config')cfg=normCfg(d);else if(/^\d{4}-W\d{2}$/.test(key))weeks[key]=normWeek(d);
+  }
+  return {config:cfg,weeks};
+}
+
+const queues={};
+function busy(){return Object.values(queues).some(q=>q.busy||q.fns.length)}
+function enqueue(key,fn){
+  const q=queues[key]||(queues[key]={busy:false,fns:[]});
+  q.fns.push(fn); if(!q.busy)flush(key);
+}
+async function flush(key){
+  const q=queues[key]; q.busy=true; setSync();
+  while(q.fns.length){
+    const taken=q.fns.splice(0);
+    for(let attempt=0;attempt<4;attempt++){
+      const body=JSON.stringify(dataOf(key));
+      try{
+        const m=meta[key];
+        if(!m){
+          const r=await graph(itemsPath(),{method:'POST',body:JSON.stringify({fields:{Title:key,Daten:body}})});
+          meta[key]={id:r.id,etag:r.fields&&r.fields['@odata.etag']};
+        }else{
+          const h=(attempt<3&&m.etag)?{'If-Match':m.etag}:{};
+          const r=await graph(itemsPath()+'/'+m.id+'/fields',{method:'PATCH',headers:h,body:JSON.stringify({Daten:body})});
+          meta[key].etag=r&&r['@odata.etag'];
+        }
+        break;
+      }catch(e){
+        if(e.status===412&&meta[key]){
+          // jemand anderes hat zwischenzeitlich gespeichert: frischen Stand holen und eigene Änderungen erneut anwenden
+          try{
+            const it=await graph(itemsPath()+'/'+meta[key].id+'?$expand=fields($select=Title,Daten)');
+            meta[key].etag=it.fields['@odata.etag'];
+            const fresh=key==='config'?normCfg(JSON.parse(it.fields.Daten||'{}')):normWeek(JSON.parse(it.fields.Daten||'{}'));
+            taken.concat(q.fns).forEach(fn=>fn(fresh)); setData(key,fresh); render();
+          }catch(_){}
+          continue;
+        }
+        if(e.status===401||e.status===403){readOnly=true;toast('Keine Schreibrechte auf die SharePoint-Liste.');render();break}
+        if(e.status===429||e.status>=500){await new Promise(r=>setTimeout(r,1500+Math.random()*1500));continue}
+        toast('Speichern fehlgeschlagen ('+(e.status||e.message)+').');break;
+      }
+    }
+  }
+  q.busy=false; setSync();
+}
+function mutateConfig(fn){
+  if(readOnly){toast('Nur Leserechte.');return}
+  const d=dataOf('config'); fn(d); setData('config',d); enqueue('config',fn); render();
+}
+function mutateWeek(fn,key){
+  key=key||viewKey;
+  if(readOnly){toast('Nur Leserechte.');return}
+  if(key===viewKey&&locked()){toast('Diese KW ist archiviert. Zum Ändern erst entsperren.');return}
+  const p=parseKey(key);
+  const full=w=>{fn(w);w.year=p.year;w.week=p.week;w.updatedAt=new Date().toISOString()};
+  const d=dataOf(key); full(d); setData(key,d); enqueue(key,full); render();
+}
+async function poll(){
+  if(!siteId||busy()||document.hidden)return;
+  try{
+    const s=await fetchAll(); if(busy())return;
+    if(JSON.stringify(s)!==JSON.stringify(state)){state=s;render()}
+    lastSync=new Date(); setSync();
+  }catch(e){if(e.status===401)return; setSync('Keine Verbindung')}
+}
+let lastSync=null;
+function setSync(msg){
+  const el=$('#sync'); if(!el)return;
+  if(msg){el.textContent=msg;return}
+  el.textContent=busy()?'Speichert …':readOnly?'Nur lesen':lastSync?'Synchronisiert '+pad(lastSync.getHours())+':'+pad(lastSync.getMinutes()):'';
+}
+
+/* ---------- actions ---------- */
+function assign(empId,projId){
+  mutateWeek(w=>{
+    for(const k of Object.keys(w.assign)) w.assign[k]=(w.assign[k]||[]).filter(i=>i!==empId);
+    w.absent=w.absent.filter(a=>a.emp!==empId);
+    if(projId){(w.assign[projId]=w.assign[projId]||[]).push(empId)}
+  });
+}
+function addEmployee(name){
+  name=name.trim(); if(!name)return false;
+  if(activeEmps().some(e=>e.name.toLowerCase()===name.toLowerCase())){toast(name+' ist bereits angelegt.');return false}
+  const id=uid('e'); mutateConfig(c=>{if(!c.employees.some(e=>e.id===id))c.employees.push({id,name})}); toast(name+' hinzugefügt.'); return true;
+}
+function addProject(name){
+  name=name.trim(); if(!name)return false;
+  if(activeProjs().some(p=>p.name.toLowerCase()===name.toLowerCase())){toast('Projekt '+name+' gibt es schon.');return false}
+  const id=uid('p'); mutateConfig(c=>{if(!c.projects.some(p=>p.id===id))c.projects.push({id,name,color:COLORS[0]})}); return true;
+}
+async function removeEmployee(id){
+  const e=empById(id); if(!e)return;
+  if(!await ask(e.name+' entfernen? In archivierten KWs bleibt der Name erhalten, ab der aktuellen KW wird die Person aus allen Einteilungen genommen.','Entfernen'))return;
+  mutateConfig(c=>{const x=c.employees.find(z=>z.id===id); if(x)x.deleted=true});
+  for(const k of Object.keys(state.weeks).filter(k=>k>=currentKey)){
+    const w=getWeek(k);
+    const hit=assignedProj(w,id)||w.absent.some(a=>a.emp===id)||w.free.some(f=>f.emp===id);
+    if(hit) mutateWeek(x=>{for(const p of Object.keys(x.assign))x.assign[p]=(x.assign[p]||[]).filter(i=>i!==id);x.absent=x.absent.filter(a=>a.emp!==id);x.free=x.free.filter(f=>f.emp!==id)},k);
+  }
+}
+async function removeProject(id){
+  const p=projById(id); if(!p)return;
+  if(!await ask('Projekt '+p.name+' löschen? Eingeteilte Mitarbeiter ab der aktuellen KW kommen zurück in die Liste „Nicht eingeteilt“. Archivierte KWs bleiben unverändert.','Löschen'))return;
+  mutateConfig(c=>{const x=c.projects.find(z=>z.id===id); if(x)x.deleted=true});
+  for(const k of Object.keys(state.weeks).filter(k=>k>=currentKey)){
+    if((getWeek(k).assign[id]||[]).length) mutateWeek(x=>{delete x.assign[id]},k);
+  }
+}
+async function copyPrev(){
+  const prevKey=shiftKey(viewKey,-1); const prev=getWeek(prevKey);
+  if(!Object.values(prev.assign).some(a=>a&&a.length)){toast('KW '+parseKey(prevKey).week+' hat keine Einteilung.');return}
+  const cur=getWeek(viewKey);
+  if(Object.values(cur.assign).some(a=>a&&a.length)&&!await ask('Die aktuelle Einteilung dieser KW wird durch die von KW '+parseKey(prevKey).week+' ersetzt. Abwesenheiten bleiben bestehen.','Übernehmen'))return;
+  mutateWeek(w=>{
+    const absent=new Set(w.absent.map(a=>a.emp)); w.assign={};
+    for(const [pid,ids] of Object.entries(prev.assign)){
+      const p=projById(pid); if(!p||p.deleted)continue;
+      const keep=(ids||[]).filter(i=>{const e=empById(i);return e&&!e.deleted&&!absent.has(i)});
+      if(keep.length)w.assign[pid]=keep;
+    }
+  });
+  toast('Einteilung aus KW '+parseKey(prevKey).week+' übernommen.');
+}
+
+/* ---------- dialog + toast ---------- */
+function ask(msg,okLabel){
+  return new Promise(res=>{
+    const d=$('#dlg'); $('#dlgMsg').textContent=msg; $('#dlgOk').textContent=okLabel||'OK';
+    d.returnValue=''; d.onclose=()=>res(d.returnValue==='ok'); d.showModal();
+  });
+}
+let tt;
+function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('show'),2800)}
+
+/* ---------- export ---------- */
+async function doExport(fmt){
+  if(typeof html2canvas!=='function'){toast('Export-Bibliothek nicht geladen.');return}
+  const node=document.getElementById('exportArea'); if(!node)return;
+  toast('Export wird erstellt …');
+  try{
+    const canvas=await html2canvas(node,{scale:2,backgroundColor:'#ffffff',windowWidth:1320,
+      onclone:doc=>{doc.documentElement.setAttribute('data-theme','light');doc.body.classList.add('exporting');doc.body.classList.remove('locked')}});
+    const p=parseKey(viewKey); const base='Arbeitseinteilung_KW'+pad(p.week)+'_'+p.year;
+    let blob,name;
+    if(fmt==='png'){
+      blob=await new Promise(r=>canvas.toBlob(r,'image/png')); name=base+'.png';
+    }else{
+      const {jsPDF}=window.jspdf; const pdf=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+      const pw=297,ph=210,m=8; const r=Math.min((pw-2*m)/canvas.width,(ph-2*m)/canvas.height);
+      const w=canvas.width*r,h=canvas.height*r;
+      pdf.addImage(canvas.toDataURL('image/png'),'PNG',(pw-w)/2,m,w,h);
+      blob=pdf.output('blob'); name=base+'.pdf';
+    }
+    await saveFile(name,blob);
+  }catch(e){toast('Export fehlgeschlagen.')}
+}
+function saveFile(name,blob){
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),4000); toast(name+' gespeichert.');
+}
+
+/* ---------- render ---------- */
+function render(){
+  if(!loaded)return;
+  document.querySelectorAll('.tabs button').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.tab===tab)));
+  document.body.classList.toggle('locked',tab==='plan'&&locked());
+  setSync();
+  const app=$('#app');
+  if(tab==='plan'){
+    // keep focus on inputs inside the plan when re-rendering from remote updates
+    const ae=document.activeElement; const keepId=ae&&ae.id&&app.contains(ae)?ae.id:null; const keepVal=keepId?ae.value:null;
+    app.innerHTML=planHTML();
+    if(keepId){const el=document.getElementById(keepId);if(el){el.value=keepVal;el.focus()}}
+  }else if(tab==='weeks') app.innerHTML=weeksHTML();
+  else{
+    if(app.querySelector('.master')&&app.contains(document.activeElement)&&document.activeElement.classList.contains('nm'))return;
+    app.innerHTML=masterHTML();
+  }
+}
+
+function planHTML(){
+  const w=getWeek(viewKey); const p=parseKey(viewKey);
+  const st=isArchive(viewKey)?'var(--archive)':viewKey===currentKey?'var(--amber)':'var(--future)';
+  const stLabel=isArchive(viewKey)?'Archiv':viewKey===currentKey?'Aktuelle KW':'Vorplanung';
+  const pool=poolEmps(w).filter(e=>!poolFilter||e.name.toLowerCase().includes(poolFilter.toLowerCase()));
+  const poolAll=poolEmps(w);
+  const freeMap=Object.fromEntries(w.free.map(f=>[f.emp,f.note]));
+  const showProjs=projs().filter(x=>!x.deleted||(w.assign[x.id]||[]).length);
+
+  let h=`<div class="weekbar" style="--st:${st}">
+    <div class="kwnav">
+      <button class="iconbtn" data-act="prev" aria-label="Vorherige KW">‹</button>
+      <div class="kw"><small>KW</small><strong>${pad(p.week)}</strong></div>
+      <button class="iconbtn" data-act="next" aria-label="Nächste KW">›</button>
+    </div>
+    <div class="kwmeta"><span class="dates">${dateRange(viewKey)}</span><span class="status"><i></i>${stLabel}</span></div>
+    <div class="actions">
+      ${viewKey!==currentKey?'<button class="btn" data-act="today">Zur aktuellen KW</button>':''}
+      <button class="btn edit" data-act="copyprev">Aus Vorwoche übernehmen</button>
+      <div class="menu"><button class="btn primary" data-act="exportmenu" aria-haspopup="true">Exportieren</button></div>
+    </div>
+  </div>`;
+  if(isArchive(viewKey)&&!readOnly){
+    h+=`<div class="banner"><span>${archiveUnlocked?'Archiv-KW ist zum Bearbeiten entsperrt.':'Diese KW liegt im Archiv und ist schreibgeschützt.'}</span>
+      <button class="btn small" data-act="unlock">${archiveUnlocked?'Wieder sperren':'Bearbeiten entsperren'}</button></div>`;
+  }
+  h+=`<div class="plan">
+    <aside class="pool no-export">
+      <h2>Nicht eingeteilt <span>${poolAll.length}</span></h2>
+      ${poolAll.length>8?`<input id="poolSearch" type="search" placeholder="Suchen" value="${esc(poolFilter)}">`:''}
+      <ul class="poollist" data-drop="__pool">
+        ${pool.map(e=>`<li draggable="${!locked()}" data-emp="${e.id}">${esc(e.name)}${freeMap[e.id]?` <span class="fd">${esc(freeMap[e.id])}</span>`:''}</li>`).join('')
+          ||`<li class="empty">${activeEmps().length?'Alle Mitarbeiter sind eingeteilt oder abwesend.':'Noch keine Mitarbeiter angelegt.'}</li>`}
+      </ul>
+      <form class="quickadd edit" data-form="emp">
+        <input id="quickEmp" placeholder="Nachname, Vorname" aria-label="Neuer Mitarbeiter">
+        <button class="btn small" type="submit">Anlegen</button>
+      </form>
+    </aside>
+    <div class="exportArea" id="exportArea">
+      <div class="export-only export-head"><h2>Arbeitseinteilung KW ${pad(p.week)} / ${p.year}</h2><div>${dateRange(viewKey)}</div></div>
+      <div class="board">`;
+  for(const pr of showProjs){
+    const ids=(w.assign[pr.id]||[]).slice().sort((a,b)=>nameOf(a).localeCompare(nameOf(b),'de'));
+    h+=`<section class="card" data-drop="${pr.id}" style="--pc:${pr.color||COLORS[0]}">
+      <header class="card-h"><h3>${esc(pr.name)}${pr.deleted?' <small>(gelöscht)</small>':''}</h3><span class="cnt">${ids.length}</span></header>
+      <ul class="rows">
+        ${ids.map(id=>`<li class="row emp" draggable="${!locked()}" data-emp="${id}"><span class="nm">${esc(nameOf(id))}</span>${freeMap[id]?`<span class="fd" title="Freie Tage">${esc(freeMap[id])}</span>`:''}<button class="x edit no-export" data-unassign="${id}" aria-label="${esc(nameOf(id))} austragen">×</button></li>`).join('')}
+        ${'<li class="row filler"></li>'.repeat(Math.max(0,3-ids.length))}
+      </ul>
+      ${!pr.deleted?`<select class="add edit no-export" data-assign-to="${pr.id}" aria-label="Mitarbeiter in ${esc(pr.name)} einteilen"><option value="">+ Mitarbeiter einteilen</option>${poolAll.map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join('')}</select>`:''}
+    </section>`;
+  }
+  h+=`<form class="addcard edit no-export" data-form="proj">
+        <label for="newProj">${showProjs.length?'Weiteres Projekt':'Erstes Projekt anlegen'}</label>
+        <input id="newProj" placeholder="z. B. C591 oder EOL Bau 38">
+        <button class="btn small" type="submit">Projekt hinzufügen</button>
+      </form>
+      </div>
+      <div class="lower">${absentHTML(w)}${freeHTML(w)}</div>
+    </div>
+  </div>`;
+  return h;
+}
+
+function absentHTML(w){
+  const absentIds=new Set(w.absent.map(a=>a.emp));
+  const opts=activeEmps().filter(e=>!absentIds.has(e.id));
+  const rows=w.absent.slice().sort((a,b)=>nameOf(a.emp).localeCompare(nameOf(b.emp),'de'));
+  return `<div class="tbl">
+    <div class="tbl-h violet">Abwesend<span class="cnt">${rows.length}</span></div>
+    <table><thead><tr><th>Name</th><th>Hinweis</th><th class="c"></th></tr></thead><tbody>
+    ${rows.map(a=>`<tr><td>${esc(nameOf(a.emp))}</td><td>${esc(a.note)}</td><td class="c"><button class="x edit no-export" data-del-absent="${a.emp}" aria-label="Eintrag entfernen">×</button></td></tr>`).join('')
+      ||'<tr class="none"><td colspan="3">Niemand abwesend</td></tr>'}
+    </tbody></table>
+    <form class="addrow edit no-export" data-form="absent">
+      <select id="absEmp" aria-label="Mitarbeiter"><option value="">Mitarbeiter wählen</option>${opts.map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join('')}</select>
+      <input id="absNote" placeholder="Ganze Woche" aria-label="Hinweis">
+      <button class="btn small" type="submit">Eintragen</button>
+    </form>
+  </div>`;
+}
+function freeHTML(w){
+  const absentIds=new Set(w.absent.map(a=>a.emp)); const freeIds=new Set(w.free.map(f=>f.emp));
+  const opts=activeEmps().filter(e=>!absentIds.has(e.id)&&!freeIds.has(e.id));
+  const rows=w.free.slice().sort((a,b)=>nameOf(a.emp).localeCompare(nameOf(b.emp),'de'));
+  return `<div class="tbl">
+    <div class="tbl-h amber">Einzelne freie Tage<span class="cnt">${rows.length}</span></div>
+    <table><thead><tr><th>Name</th><th>Hinweis</th><th>Bereich</th><th class="c"></th></tr></thead><tbody>
+    ${rows.map(f=>{const pid=assignedProj(w,f.emp);const pr=pid&&projById(pid);
+      return `<tr><td>${esc(nameOf(f.emp))}</td><td>${esc(f.note)}</td><td>${pr?esc(pr.name):'–'}</td><td class="c"><button class="x edit no-export" data-del-free="${f.emp}" aria-label="Eintrag entfernen">×</button></td></tr>`}).join('')
+      ||'<tr class="none"><td colspan="4">Keine einzelnen freien Tage</td></tr>'}
+    </tbody></table>
+    <form class="addrow edit no-export" data-form="free">
+      <select id="freeEmp" aria-label="Mitarbeiter"><option value="">Mitarbeiter wählen</option>${opts.map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join('')}</select>
+      <input id="freeNote" placeholder="z. B. Mo. u. Di." aria-label="Freie Tage">
+      <button class="btn small" type="submit">Eintragen</button>
+    </form>
+  </div>`;
+}
+
+function weekRow(k){
+  const w=getWeek(k); const p=parseKey(k);
+  const n=Object.values(w.assign).reduce((s,a)=>s+((a||[]).length),0);
+  const pj=Object.values(w.assign).filter(a=>a&&a.length).length;
+  const st=isArchive(k)?'var(--archive)':k===currentKey?'var(--amber)':'var(--future)';
+  const summary=weekHasData(w)?`${n} eingeteilt in ${pj} Projekt${pj===1?'':'en'}, ${w.absent.length} abwesend`:'Noch nicht geplant';
+  return `<button class="wk${k===currentKey?' now':''}" data-open="${k}" style="--st:${st}">
+    <span class="n">${pad(p.week)}</span>
+    <span><span class="d">${dateRange(k)}</span><br><span class="s">${summary}</span></span>
+    <span class="tag">${k===currentKey?'Aktuell':isArchive(k)?'Archiv':weekHasData(w)?'Geplant':'Offen'}</span>
+  </button>`;
+}
+function weeksHTML(){
+  const keys=new Set(Object.keys(state.weeks).filter(k=>weekHasData(getWeek(k))));
+  const future=[]; for(let i=0;i<10;i++)future.push(shiftKey(currentKey,i));
+  keys.forEach(k=>{if(k>=currentKey&&!future.includes(k))future.push(k)});
+  future.sort();
+  const past=[...keys].filter(k=>k<currentKey).sort().reverse();
+  return `<div class="weeks">
+    <section><h2>Aktuell und Vorplanung <span>${future.length} KWs</span></h2>${future.map(weekRow).join('')}</section>
+    <section><h2>Archiv <span>${past.length} KWs</span></h2>${past.map(weekRow).join('')||'<div class="wkempty">Sobald eine geplante KW vorbei ist, erscheint sie hier.</div>'}</section>
+  </div>`;
+}
+
+function masterHTML(){
+  const ap=activeProjs();
+  return `<div class="master">
+    <section>
+      <h2>Mitarbeiter</h2><p class="hint">${activeEmps().length} aktiv. Namen direkt im Feld ändern.</p>
+      <form class="mform" data-form="memp"><input id="mEmp" placeholder="Nachname, Vorname" aria-label="Neuer Mitarbeiter"><button class="btn primary" type="submit">Hinzufügen</button></form>
+      <details class="bulk"><summary>Mehrere auf einmal einfügen</summary>
+        <form data-form="bulk"><textarea id="bulkEmp" rows="6" placeholder="Ein Name pro Zeile, z. B.&#10;Ahmed, Samy&#10;Grahl, Carsten"></textarea>
+        <button class="btn small" type="submit">Alle hinzufügen</button></form></details>
+      <ul class="mlist">${activeEmps().map(e=>`<li><input class="nm" data-rename-emp="${e.id}" value="${esc(e.name)}" aria-label="Name"><button class="btn small danger" data-rm-emp="${e.id}">Entfernen</button></li>`).join('')||'<li class="s">Noch keine Mitarbeiter.</li>'}</ul>
+    </section>
+    <section>
+      <h2>Projekte</h2><p class="hint">Reihenfolge und Farbe gelten für die Planungsansicht und den Export.</p>
+      <form class="mform" data-form="mproj"><input id="mProj" placeholder="Projektname" aria-label="Neues Projekt"><button class="btn primary" type="submit">Hinzufügen</button></form>
+      <ul class="mlist">${ap.map((p,i)=>`<li>
+        <input class="nm" data-rename-proj="${p.id}" value="${esc(p.name)}" aria-label="Projektname">
+        <span class="swatches">${COLORS.map(c=>`<button class="sw" style="background:${c}" data-color="${c}" data-proj="${p.id}" aria-label="Farbe" aria-pressed="${(p.color||COLORS[0])===c}"></button>`).join('')}</span>
+        <button class="tiny" data-move="${p.id}" data-dir="-1" ${i===0?'disabled':''} aria-label="Nach oben">↑</button>
+        <button class="tiny" data-move="${p.id}" data-dir="1" ${i===ap.length-1?'disabled':''} aria-label="Nach unten">↓</button>
+        <button class="btn small danger" data-rm-proj="${p.id}">Löschen</button></li>`).join('')||'<li class="s">Noch keine Projekte.</li>'}</ul>
+    </section>
+  </div>`;
+}
+
+/* ---------- events ---------- */
+document.addEventListener('click',e=>{
+  const t=e.target.closest('button'); 
+  const menuOpen=document.querySelector('.menu-list');
+  if(menuOpen&&!(t&&(t.dataset.act==='exportmenu'||t.dataset.exp))){menuOpen.remove()}
+  if(!t)return;
+  if(t.dataset.tab){tab=t.dataset.tab;render();return}
+  if(t.id==='loginBtn'){msalApp.loginRedirect({scopes:SCOPES});return}
+  if(t.id==='logoutBtn'){msalApp.logoutRedirect({account});return}
+  const a=t.dataset.act;
+  if(a==='prev'){viewKey=shiftKey(viewKey,-1);archiveUnlocked=false;poolFilter='';render()}
+  else if(a==='next'){viewKey=shiftKey(viewKey,1);archiveUnlocked=false;poolFilter='';render()}
+  else if(a==='today'){viewKey=currentKey;archiveUnlocked=false;render()}
+  else if(a==='unlock'){archiveUnlocked=!archiveUnlocked;render()}
+  else if(a==='copyprev'){copyPrev()}
+  else if(a==='exportmenu'){
+    if(menuOpen){menuOpen.remove();return}
+    const m=document.createElement('div');m.className='menu-list';
+    m.innerHTML='<button data-exp="png">Als Bild (PNG)</button><button data-exp="pdf">Als PDF</button>';
+    t.parentElement.appendChild(m);
+  }
+  else if(t.dataset.exp){const f=t.dataset.exp;document.querySelector('.menu-list')?.remove();doExport(f)}
+  else if(t.dataset.unassign){assign(t.dataset.unassign,null)}
+  else if(t.dataset.delAbsent){const id=t.dataset.delAbsent;mutateWeek(w=>{w.absent=w.absent.filter(x=>x.emp!==id)})}
+  else if(t.dataset.delFree){const id=t.dataset.delFree;mutateWeek(w=>{w.free=w.free.filter(x=>x.emp!==id)})}
+  else if(t.dataset.open){viewKey=t.dataset.open;archiveUnlocked=false;tab='plan';render();window.scrollTo(0,0)}
+  else if(t.dataset.rmEmp){removeEmployee(t.dataset.rmEmp)}
+  else if(t.dataset.rmProj){removeProject(t.dataset.rmProj)}
+  else if(t.dataset.color){const c=t.dataset.color,id=t.dataset.proj;mutateConfig(cf=>{const p=cf.projects.find(x=>x.id===id);if(p)p.color=c})}
+  else if(t.dataset.move){
+    const id=t.dataset.move,dir=+t.dataset.dir;
+    mutateConfig(cf=>{
+      const act=cf.projects.filter(p=>!p.deleted); const i=act.findIndex(p=>p.id===id); const j=i+dir;
+      if(i<0||j<0||j>=act.length)return; [act[i],act[j]]=[act[j],act[i]];
+      cf.projects=act.concat(cf.projects.filter(p=>p.deleted));
+    });
+  }
+});
+document.addEventListener('submit',e=>{
+  const f=e.target.closest('form[data-form]'); if(!f)return; e.preventDefault();
+  const k=f.dataset.form;
+  if(k==='emp'||k==='memp'){const i=f.querySelector('input');if(addEmployee(i.value)){i.value='';i.focus()}}
+  else if(k==='proj'||k==='mproj'){const i=f.querySelector('input');if(addProject(i.value)){i.value='';const n=document.getElementById(i.id);if(n)n.focus()}}
+  else if(k==='bulk'){
+    const ta=$('#bulkEmp'); const have=new Set(activeEmps().map(e=>e.name.toLowerCase()));
+    const names=[...new Set(ta.value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean))].filter(n=>!have.has(n.toLowerCase()));
+    if(!names.length){toast('Keine neuen Namen gefunden.');return}
+    const add=names.map(n=>({id:uid('e'),name:n}));
+    mutateConfig(c=>{add.forEach(a=>{if(!c.employees.some(e=>e.id===a.id))c.employees.push(a)})});
+    ta.value=''; toast(add.length+' Mitarbeiter hinzugefügt.');
+  }
+  else if(k==='absent'){
+    const id=$('#absEmp').value; if(!id){toast('Bitte Mitarbeiter wählen.');return}
+    const note=$('#absNote').value.trim()||'Ganze Woche';
+    mutateWeek(w=>{for(const p of Object.keys(w.assign))w.assign[p]=(w.assign[p]||[]).filter(i=>i!==id);w.free=w.free.filter(x=>x.emp!==id);w.absent=w.absent.filter(x=>x.emp!==id);w.absent.push({emp:id,note})});
+  }
+  else if(k==='free'){
+    const id=$('#freeEmp').value; const note=$('#freeNote').value.trim();
+    if(!id){toast('Bitte Mitarbeiter wählen.');return} if(!note){toast('Bitte die freien Tage eintragen, z. B. „Di.“.');return}
+    mutateWeek(w=>{w.free=w.free.filter(x=>x.emp!==id);w.free.push({emp:id,note})});
+  }
+});
+document.addEventListener('change',e=>{
+  const t=e.target;
+  if(t.dataset.assignTo&&t.value){assign(t.value,t.dataset.assignTo)}
+  else if(t.dataset.renameEmp){const v=t.value.trim(),id=t.dataset.renameEmp;if(!v){render();return}mutateConfig(c=>{const x=c.employees.find(z=>z.id===id);if(x)x.name=v})}
+  else if(t.dataset.renameProj){const v=t.value.trim(),id=t.dataset.renameProj;if(!v){render();return}mutateConfig(c=>{const x=c.projects.find(z=>z.id===id);if(x)x.name=v})}
+});
+document.addEventListener('input',e=>{
+  if(e.target.id==='poolSearch'){poolFilter=e.target.value;render()}
+});
+document.addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&e.target.classList&&e.target.classList.contains('nm'))e.target.blur();
+});
+/* drag & drop */
+let dragEmp=null;
+document.addEventListener('dragstart',e=>{
+  const el=e.target.closest&&e.target.closest('[data-emp]'); if(!el||locked()){return}
+  dragEmp=el.dataset.emp; e.dataTransfer.effectAllowed='move'; try{e.dataTransfer.setData('text/plain',dragEmp)}catch(_){}
+});
+document.addEventListener('dragover',e=>{
+  const z=e.target.closest&&e.target.closest('[data-drop]'); if(!z||!dragEmp)return;
+  e.preventDefault(); document.querySelectorAll('.dragover').forEach(x=>x!==z&&x.classList.remove('dragover')); z.classList.add('dragover');
+});
+document.addEventListener('dragleave',e=>{
+  const z=e.target.closest&&e.target.closest('[data-drop]'); if(z&&!z.contains(e.relatedTarget))z.classList.remove('dragover');
+});
+document.addEventListener('drop',e=>{
+  const z=e.target.closest&&e.target.closest('[data-drop]'); if(!z||!dragEmp)return; e.preventDefault();
+  const target=z.dataset.drop==='__pool'?null:z.dataset.drop; const id=dragEmp; dragEmp=null;
+  const w=getWeek(viewKey); if(assignedProj(w,id)===target)return render();
+  assign(id,target);
+});
+document.addEventListener('dragend',()=>{dragEmp=null;document.querySelectorAll('.dragover').forEach(x=>x.classList.remove('dragover'))});
+
+/* ---------- init ---------- */
+function screen(html){$('#app').innerHTML='<div class="gate">'+html+'</div>'}
+async function init(){
+  if(!C||/DEINE|xxxx/i.test(C.clientId+C.tenantId+C.siteHost)){
+    screen('<h2>Einrichtung fehlt</h2><p>Trage in <code>index.html</code> oben unter <code>APP_CONFIG</code> Tenant-ID, Client-ID und die SharePoint-Seite ein. Die Schritte stehen in der Anleitung (README).</p>');return;
+  }
+  if(!window.msal){screen('<h2>Anmeldung nicht verfügbar</h2><p>Die Microsoft-Anmeldebibliothek konnte nicht geladen werden. Prüfe die Internetverbindung oder ob jsdelivr.net im Firmennetz gesperrt ist.</p>');return}
+  msalApp=new msal.PublicClientApplication({auth:{clientId:C.clientId,authority:'https://login.microsoftonline.com/'+C.tenantId,redirectUri:location.origin+location.pathname},cache:{cacheLocation:'localStorage'}});
+  try{const r=await msalApp.handleRedirectPromise();if(r&&r.account)msalApp.setActiveAccount(r.account)}catch(e){screen('<h2>Anmeldung fehlgeschlagen</h2><p>'+esc(e.message)+'</p><button class="btn primary" id="loginBtn">Erneut anmelden</button>');return}
+  account=msalApp.getActiveAccount()||msalApp.getAllAccounts()[0]||null;
+  if(!account){screen('<h2>Arbeitseinteilung</h2><p>Melde dich mit deinem Firmenkonto an, um die gemeinsame Planung zu öffnen.</p><button class="btn primary" id="loginBtn">Mit Microsoft anmelden</button>');return}
+  msalApp.setActiveAccount(account);
+  $('#who').innerHTML=esc(account.name||account.username)+' <button class="btn small" id="logoutBtn">Abmelden</button>';
+  try{
+    const site=await graph('/sites/'+C.siteHost+':'+C.sitePath);
+    siteId=site.id;
+    const lists=await graph('/sites/'+siteId+'/lists?$select=id,displayName,name&$top=500');
+    const l=lists.value.find(x=>x.displayName===C.listName||x.name===C.listName);
+    if(!l){screen('<h2>Liste nicht gefunden</h2><p>Auf der SharePoint-Seite gibt es keine Liste „'+esc(C.listName)+'“. Lege sie wie in der Anleitung beschrieben an.</p>');return}
+    listId=l.id;
+    state=await fetchAll(); lastSync=new Date();
+  }catch(e){
+    const m=e.status===404?'Die SharePoint-Seite wurde nicht gefunden. Prüfe siteHost und sitePath.':e.status===403||e.status===401?'Kein Zugriff auf die SharePoint-Seite. Prüfe deine Berechtigung oder die Freigabe der App-Registrierung (Sites.ReadWrite.All).':'Verbindung zu SharePoint fehlgeschlagen ('+esc(e.status||e.message)+').';
+    screen('<h2>Keine Verbindung</h2><p>'+m+'</p>');return;
+  }
+  loaded=true; render();
+  setInterval(poll,(C.pollSeconds||20)*1000);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll()});
+}
+init();
+})();
+</script>
+</body>
+</html>
